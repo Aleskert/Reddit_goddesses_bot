@@ -20,6 +20,7 @@ import config  # import config.py
 import sqlite3
 import telebot  # import telebot library
 import requests
+import logging
 from fake_useragent import UserAgent
 from telebot import types
 
@@ -49,6 +50,18 @@ class SQLighter:
             if self.cursor.execute('SELECT count(*) FROM goddesses WHERE utc = ?', (utc,)).fetchone()[0] == 1:
                 return True
 
+    def check_user(self, id):
+        with self.connection:
+            if self.cursor.execute('SELECT count(*) FROM users WHERE ID = ?', (id,)).fetchone()[0] == 1:
+                return True
+
+    def add_user(self, id, first_name, last_name, username, tel, lang, bot):
+        with self.connection:
+            try:
+                self.cursor.execute("INSERT INTO users (ID, First_name, Last_name, Username, Telephone, Lang, bot) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                                    (id, first_name, last_name, username, tel, lang, bot))
+            except sqlite3.DatabaseError as error:
+                print("Error add_user:", error)
 
 # =============================SQL END
 
@@ -148,7 +161,7 @@ def get_picture(url, message):
 
 @bot.message_handler(content_types=['document', 'audio'])
 def handle_docs_audio(message):
-    pass
+    bot.send_message(message.chat.id, "Аудіо бот не сприймає")
 
 
 @bot.message_handler(commands=['help'])
@@ -162,24 +175,31 @@ def open_help(message):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id,
-                     "Бот запущено")
+    bot.send_message(message.chat.id, "Бот запущено")
 
-
-@bot.message_handler(commands=['goddesses'])
+@bot.message_handler(func=lambda message: True, commands=['goddesses'])
 def goddesses(message):
     print('----------Goddesses----------', end='| ')
     print(time.localtime().tm_hour, ":", time.localtime().tm_min, end=' | ')
     print(message.from_user.id, "|", message.from_user.first_name, end=' | ')
     print(message.from_user.last_name, "|" , message.from_user.username)
     url = 'https://www.reddit.com/r/goddesses/new/.json'
-    try:
-        get_picture(url, message)
-    except telebot.apihelper.ApiException as e:
-        if e.result.status_code == 403:
-            print('Користувач забанив бота')
-        elif e.result.status_code == 400:
-            print('Не вийшло загрузить медіа')
+
+    db_worker = SQLighter(config.database_name)
+    if db_worker.check_user(message.from_user.id):
+        try:
+            get_picture(url, message)
+        except telebot.apihelper.ApiException as e:
+            if e.result.status_code == 403:
+                print('Користувач забанив бота')
+            elif e.result.status_code == 400:
+                print('Не вийшло загрузить медіа')
+    else:
+        keyboard = types.ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
+        button_phone = types.KeyboardButton(request_contact=True, text="Надіслати свої дані")
+        keyboard.add(button_phone)
+        bot.send_message(message.chat.id, 'Ти не зареєстрований. Зареєструйся!', reply_markup=keyboard)
+    db_worker.close()
 
 
 @bot.message_handler(commands=['nsfw'])
@@ -189,13 +209,40 @@ def nsfw(message):
     print(message.from_user.id, "|", message.from_user.first_name, end=' | ')
     print(message.from_user.last_name, "|" , message.from_user.username)
     url = 'https://www.reddit.com/r/nsfw/new/.json'
-    try:
-        get_picture(url, message)
-    except telebot.apihelper.ApiException as e:
-        if e.result.status_code == 403:
-            print('Користувач забанив бота')
-        elif e.result.status_code == 400:
-            print('Не вийшло загрузить медіа')
 
+    db_worker = SQLighter(config.database_name)
+    if db_worker.check_user(message.from_user.id):
+        try:
+            get_picture(url, message)
+        except telebot.apihelper.ApiException as e:
+            if e.result.status_code == 403:
+                print('Користувач забанив бота')
+            elif e.result.status_code == 400:
+                print('Не вийшло загрузить медіа')
+    else:
+        keyboard = types.ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True)
+        button_phone = types.KeyboardButton(request_contact=True, text="Надіслати свої дані")
+        keyboard.add(button_phone)
+        bot.send_message(message.chat.id, 'Ти не зареєстрований. Зареєструйся!', reply_markup=keyboard)
+    db_worker.close()
 
-bot.polling(none_stop=True)
+@bot.message_handler(content_types=['contact'])
+def contact(message):
+    if message.from_user.id == message.contact.user_id:
+        print(message.contact)
+        print(message.from_user)
+        db_worker = SQLighter(config.database_name)
+        db_worker.add_user(message.contact.user_id, message.contact.first_name, message.contact.last_name,
+                           message.from_user.username, message.contact.phone_number, message.from_user.language_code,
+                           message.from_user.is_bot)
+        db_worker.close()
+        keyboard = types.ReplyKeyboardRemove()
+        bot.send_message(message.chat.id, "Зарєстровано", reply_markup=keyboard)
+    else:
+        bot.send_message(message.chat.id, 'Ділитися треба лише СВОЇМИ контактами')
+
+if __name__ == '__main__':
+    logging.getLogger('telebot').setLevel(logging.DEBUG)
+    logging.basicConfig(format='[%(asctime)s] %(filename)s:%(lineno)d %(levelname)s - %(message)s', level=logging.INFO,
+                        filename='bot_log.log', datefmt='%d.%m.%Y %H:%M:%S')
+    bot.polling(none_stop=True)
