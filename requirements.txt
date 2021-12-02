@@ -1,0 +1,5 @@
+fake-useragent==0.1.11
+Pillow==8.3.2
+pyTelegramBotAPI==4.0.0
+requests==2.26.0
+schedule==1.1.0
