@@ -18,8 +18,6 @@ Telegram bot - parsing reddit for boobs
 ## Available commands
 * /start
 * /help
-* /goddesses
-* /nsfw
 
 ## Files
 * bot.py - main python script
