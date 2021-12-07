@@ -25,6 +25,7 @@ from fake_useragent import UserAgent
 from telebot import types
 import threading
 import schedule
+from schedule import every, repeat, run_pending
 
 # from PIL import Image
 
@@ -55,16 +56,20 @@ class SQLighter:
 
     def check_user(self, id):
         with self.connection:
-            if self.cursor.execute('SELECT count(*) FROM users WHERE ID = ?', (id,)).fetchone()[0] == 1:
+            if self.cursor.execute('SELECT count(*) FROM users WHERE ID = ?', (id,)).fetchone()[0] >= 1:
                 return True
 
     def add_user(self, id, first_name, last_name, username, tel, lang, bot):
         with self.connection:
             try:
-                self.cursor.execute("INSERT INTO users (ID, First_name, Last_name, Username, Telephone, Lang, bot) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                self.cursor.execute("INSERT INTO users (ID, First_name, Last_name, Username, Telephone, Lang, bot, lastpic) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
                                     (id, first_name, last_name, username, tel, lang, bot))
             except sqlite3.DatabaseError as error:
                 print("Error add_user:", error)
+
+    def random(self):
+        with self.connection:
+            return self.cursor.execute('SELECT * FROM goddesses ORDER BY RANDOM() LIMIT 1;')
 
     def all_reg_users(self):
         with self.connection:
@@ -74,9 +79,13 @@ class SQLighter:
         with self.connection:
             return self.cursor.execute('SELECT lastpic FROM users WHERE id = ?', (userid,)).fetchone()[0]
 
-    def update_last_pic(self, utc, userid):
+    def check_utc_in_buffer(self, utc):
         with self.connection:
-            self.cursor.execute('UPDATE users SET lastpic = ? WHERE ID = ?',(utc,userid))
+            return self.cursor.execute('SELECT ID FROM goddesses WHERE utc = ?', (utc,)).fetchone()[0]
+
+    def update_last_pic(self, id_from_buffer, userid):
+        with self.connection:
+            self.cursor.execute('UPDATE users SET lastpic = ? WHERE ID = ?',(id_from_buffer,userid))
 
 # =============================SQL END
 
@@ -89,26 +98,29 @@ def read_js(req):
     return data
 
 
-def check_and_add(name, url, utc, userid):
+def check_user_last_pic(utc, userid):
+    db_worker = SQLighter(config.database_name)
+    last_id = db_worker.user_last_pic(userid)
+    id_from_buffer = db_worker.check_utc_in_buffer(utc)
+    if last_id < id_from_buffer:
+        db_worker.update_last_pic(id_from_buffer, userid)
+        posted = 1
+    else:
+        posted = 0
+    db_worker.close()
+    return posted
+
+
+def check_and_add_bd(name, url, utc):
     db_worker = SQLighter(config.database_name)
     if db_worker.checkboobs(utc):
-        if db_worker.user_last_pic(userid) < utc:
-            print(" + ", end=" | ")
-            print(name)
-            db_worker.update_last_pic(utc, userid)
-            posted = 0
-        else:
-            print("   ", end=" | ")
-            print(name)
-            posted = 1
-        db_worker.close()
+        in_db = 1
     else:
         db_worker.addboobs(name, url, utc)
         db_worker.close()
-        posted = 0
-        print(" + ", end=" | ")
-        print(name)
-    return posted
+        print("Added - ", name)
+        in_db = 0
+    return in_db
 
 
 def del_amp(text):
@@ -116,8 +128,9 @@ def del_amp(text):
     return text
 
 
-def get_picture(url, message):
+def get_picture(url):
     data_all = []
+    all_picture = []
     name = 'No name'
     while len(data_all) < 25:
         time.sleep(2)
@@ -127,19 +140,19 @@ def get_picture(url, message):
     for k in data_all:
         try:  # перевірка на відео
             if k['data']['preview']['reddit_video_preview']['is_gif']:
-                print("Video  ", end=" | ")
                 name = del_amp(k['data']['title'])
                 url = del_amp(k['data']['preview']['reddit_video_preview']['fallback_url'])
                 time_create = k['data']['created_utc']
-                if check_and_add(name, url, time_create, message) == 0:
-                    try:
-                        bot.send_video(message, url)
-                    except Exception:
-                        print("Error parsing video")
+                check_and_add_bd(name, url, time_create)
+                all_picture.append(['v',name,url,time_create])
+                # if check_and_add(name, url, time_create, message) == 0:
+                #     try:
+                #         bot.send_video(message, url)
+                #     except Exception:
+                #         print("Error parsing video")
         except KeyError:
             try:
                 if k['data']['preview']:
-                    print("Images ", end=" | ")
                     name = del_amp(k['data']['title'])
                     time_create = k['data']['created_utc']
                     try:  # пробуємо запостити 3 резолюцію
@@ -152,8 +165,10 @@ def get_picture(url, message):
                                 url = del_amp(k['data']['preview']['images'][0]['resolutions'][1]['url'])
                             except Exception:
                                 print("Ніхуя не вдалося, певно відсутні дані")
-                    if check_and_add(name, url, time_create, message) == 0:
-                        bot.send_photo(message, url, caption=name)
+                    check_and_add_bd(name, url, time_create)
+                    all_picture.append(['f',name, url, time_create])
+                    # if check_and_add(name, url, time_create, message) == 0:
+                    #     bot.send_photo(message, url, caption=name)
                 else:
                     print('======= ', name)
             except KeyError:
@@ -161,7 +176,6 @@ def get_picture(url, message):
 
         try:  # перевірка на галерею (не більше 10)
             if k['data']['is_gallery']:
-                print("Gallery", end=" | ")
                 images = []
                 sql_url = ""
                 i = 0
@@ -174,16 +188,19 @@ def get_picture(url, message):
                     images += [types.InputMediaPhoto(url, name)]
                     sql_url += str(url) + ','
                 time_create = k['data']['created_utc']
-                if check_and_add(name, url, time_create, message) == 0:
-                    try:
-                        bot.send_media_group(message, images)
-                    except telebot.apihelper.ApiException as e:
-                        if e.result.status_code == 403:
-                            print('Користувач забанив бота')
-                        elif e.result.status_code == 400:
-                            print('Не вийшло загрузить медіа')
+                check_and_add_bd(name, url, time_create)
+                all_picture.append(['g', name, images, time_create])
+                # if check_and_add(name, url, time_create, message) == 0:
+                #     try:
+                #         bot.send_media_group(message, images)
+                #     except telebot.apihelper.ApiException as e:
+                #         if e.result.status_code == 403:
+                #             print('Користувач забанив бота')
+                #         elif e.result.status_code == 400:
+                #             print('Не вийшло загрузить медіа')
         except KeyError:
             pass
+    return all_picture
 
 def all_users():
     db_worker = SQLighter(config.database_name)
@@ -200,10 +217,17 @@ def handle_docs_audio(message):
 def open_help(message):
     bot.send_message(message.chat.id,
                      "/start - для початку роботи надішліть команду\n"
-                     "/help - для допомоги\n"
-                     "/goddesses - бот парсить богинь\n"
-                     "/nsfw - бот парсить еротику")
+                     "/help - для допомоги\n")
 
+@bot.message_handler(commands=['random'])
+def rand(message):
+    db_worker = SQLighter(config.database_name)
+    r = db_worker.random().fetchall()
+    print(r[0][2])
+    try:
+        bot.send_photo(message.chat.id, r[0][2], r[0][1])
+    except:
+        pass
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -212,7 +236,6 @@ def start(message):
     if db_worker.check_user(message.from_user.id):
         try:
             bot.send_message(message.chat.id, "Бот запущено")
-            # get_picture(url, message)
         except telebot.apihelper.ApiException as e:
             if e.result.status_code == 403:
                 print('Користувач забанив бота')
@@ -225,20 +248,85 @@ def start(message):
         bot.send_message(message.chat.id, 'Ти не зареєстрований. Зареєструйся!', reply_markup=keyboard)
     db_worker.close()
 
-# @bot.message_handler(commands=['goddesses'])
-def goddesses():
+@bot.message_handler(commands=['test1'])
+def goddesses(message):
     url = 'https://www.reddit.com/r/goddesses/new/.json'
     v_all_users = all_users()
+    new_pic = get_picture(url)
+    print(new_pic)
     for v in v_all_users:
         print(v[0],"===========================GODDESSES")
-        get_picture(url, v[0])
+        for p in new_pic:
+            if p[0] == 'v':
+                if check_user_last_pic(p[3],v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_video(v[0], p[2])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+            if p[0] == 'f':
+                if check_user_last_pic(p[3], v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_photo(v[0], p[2], caption=p[1])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+            if p[0] == 'g':
+                if check_user_last_pic(p[3], v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_media_group(v[0], p[2])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
 
-def nsfw():
-    url = 'https://www.reddit.com/r/nsfw/new/.json'
+# @repeat(every().hour.at(":32"))
+def post(url):
     v_all_users = all_users()
+    new_pic = get_picture(url)
+    print(new_pic)
     for v in v_all_users:
-        print(v[0], "===========================NSFW")
-        get_picture(url, v[0])
+        print(v[0],"===========================GODDESSES")
+        for p in new_pic:
+            if p[0] == 'v':
+                if check_user_last_pic(p[3],v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_video(v[0], p[2])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+            if p[0] == 'f':
+                if check_user_last_pic(p[3], v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_photo(v[0], p[2], caption=p[1])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+            if p[0] == 'g':
+                if check_user_last_pic(p[3], v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_media_group(v[0], p[2])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+
 
 
 @bot.message_handler(content_types=['contact'])
@@ -260,8 +348,8 @@ def runBot():
     bot.polling(none_stop=True)
 
 def runScheluders():
-    schedule.every().hour.at(":26").do(goddesses)
-    schedule.every().hour.at(":42").do(nsfw)
+    schedule.every().hour.at(":21").do(post, url='https://www.reddit.com/r/goddesses/new/.json')
+    schedule.every().hour.at(":42").do(post, url='https://www.reddit.com/r/nsfw/new/.json')
     while True:
         schedule.run_pending()
         time.sleep(1)
