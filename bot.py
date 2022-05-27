@@ -153,6 +153,7 @@ def get_picture(url):
         except KeyError:
             try:
                 if k['data']['preview']:
+                    id = del_amp(k['data']['id'])
                     name = del_amp(k['data']['title'])
                     time_create = k['data']['created_utc']
                     try:  # пробуємо запостити 3 резолюцію
@@ -166,7 +167,7 @@ def get_picture(url):
                             except Exception:
                                 print("Ніхуя не вдалося, певно відсутні дані")
                     check_and_add_bd(name, url, time_create)
-                    all_picture.append(['f',name, url, time_create])
+                    all_picture.append(['f',name, url, time_create, id])
                     # if check_and_add(name, url, time_create, message) == 0:
                     #     bot.send_photo(message, url, caption=name)
                 else:
@@ -223,7 +224,7 @@ def open_help(message):
 def rand(message):
     db_worker = SQLighter(config.database_name)
     r = db_worker.random().fetchall()
-    print(r[0][2])
+    #print(r[0][2])
     try:
         bot.send_photo(message.chat.id, r[0][2], r[0][1])
     except:
@@ -250,12 +251,12 @@ def start(message):
 
 @bot.message_handler(commands=['test1'])
 def goddesses(message):
-    url = 'https://www.reddit.com/r/goddesses/new/.json'
+    url = 'https://www.reddit.com/r/goddesses_2/new/.json'
     v_all_users = all_users()
     new_pic = get_picture(url)
-    print(new_pic)
+    #print(new_pic)
     for v in v_all_users:
-        print(v[0],"===========================GODDESSES")
+        print(v[0],"===========================test")
         for p in new_pic:
             if p[0] == 'v':
                 if check_user_last_pic(p[3],v[0])==1:
@@ -271,7 +272,8 @@ def goddesses(message):
                 if check_user_last_pic(p[3], v[0])==1:
                     try:
                         print(v[0], p[0], p[1])
-                        bot.send_photo(v[0], p[2], caption=p[1])
+                        capt = str("[" + p[1] + "](redd.it/" + p[4]+ ")")
+                        bot.send_photo(v[0], p[2], caption=capt, parse_mode='MarkdownV2')
                     except telebot.apihelper.ApiException as e:
                         if e.result.status_code == 403:
                             print('Користувач забанив бота')
@@ -292,7 +294,7 @@ def goddesses(message):
 def post(url):
     v_all_users = all_users()
     new_pic = get_picture(url)
-    print(new_pic)
+    #print(new_pic)
     for v in v_all_users:
         print(v[0],"===========================GODDESSES")
         for p in new_pic:
@@ -310,7 +312,8 @@ def post(url):
                 if check_user_last_pic(p[3], v[0])==1:
                     try:
                         print(v[0], p[0], p[1])
-                        bot.send_photo(v[0], p[2], caption=p[1])
+                        capt = str("[" + p[1] + "](redd.it/" + p[4]+ ")")
+                        bot.send_photo(v[0], p[2], caption=capt, parse_mode='MarkdownV2')
                     except telebot.apihelper.ApiException as e:
                         if e.result.status_code == 403:
                             print('Користувач забанив бота')
@@ -334,11 +337,11 @@ def contact(message):
     if message.from_user.id == message.contact.user_id:
         print(message.contact)
         print(message.from_user)
-        db_worker = SQLighter(config.database_name)
-        db_worker.add_user(message.contact.user_id, message.contact.first_name, message.contact.last_name,
-                           message.from_user.username, message.contact.phone_number, message.from_user.language_code,
-                           message.from_user.is_bot)
-        db_worker.close()
+        # db_worker = SQLighter(config.database_name)
+        # db_worker.add_user(message.contact.user_id, message.contact.first_name, message.contact.last_name,
+        #                   message.from_user.username, message.contact.phone_number, message.from_user.language_code,
+        #                   message.from_user.is_bot)
+        # db_worker.close()
         keyboard = types.ReplyKeyboardRemove()
         bot.send_message(message.chat.id, "Зарєстровано! Зачекай, поки адмін додасть тебе до дозволених людей!", reply_markup=keyboard)
     else:
@@ -348,7 +351,7 @@ def runBot():
     bot.polling(none_stop=True)
 
 def runScheluders():
-    schedule.every().hour.at(":21").do(post, url='https://www.reddit.com/r/goddesses/new/.json')
+    schedule.every().hour.at(":21").do(post, url='https://www.reddit.com/r/goddesses_2/new/.json')
     schedule.every().hour.at(":42").do(post, url='https://www.reddit.com/r/nsfw/new/.json')
     while True:
         schedule.run_pending()
