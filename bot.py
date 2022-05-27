@@ -224,7 +224,7 @@ def open_help(message):
 def rand(message):
     db_worker = SQLighter(config.database_name)
     r = db_worker.random().fetchall()
-    #print(r[0][2])
+    #print(r[0][2]) 111
     try:
         bot.send_photo(message.chat.id, r[0][2], r[0][1])
     except:
