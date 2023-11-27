@@ -136,7 +136,11 @@ def get_picture(url):
         time.sleep(2)
         req = requests.get(url, headers={'User-Agent': UserAgent().chrome})
         json_data = read_js(req)
-        data_all += json_data['data']['children']
+        try:
+            if json_data['data']['children'] is not None:
+                data_all += json_data['data']['children']
+        except KeyError:
+            pass
     for k in data_all:
         try:  # перевірка на відео
             if k['data']['preview']['reddit_video_preview']['is_gif']:
@@ -224,7 +228,7 @@ def open_help(message):
 def rand(message):
     db_worker = SQLighter(config.database_name)
     r = db_worker.random().fetchall()
-    #print(r[0][2])
+    #print(r[0][2]) 111
     try:
         bot.send_photo(message.chat.id, r[0][2], r[0][1])
     except:
@@ -256,7 +260,48 @@ def goddesses(message):
     new_pic = get_picture(url)
     #print(new_pic)
     for v in v_all_users:
-        print(v[0],"===========================test")
+        print(v[0],"===========================Тест Богині 2")
+        for p in new_pic:
+            if p[0] == 'v':
+                if check_user_last_pic(p[3],v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_video(v[0], p[2])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+            if p[0] == 'f':
+                if check_user_last_pic(p[3], v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        capt = str("[" + p[1] + "](redd.it/" + p[4]+ ")")
+                        bot.send_photo(v[0], p[2], caption=capt, parse_mode='MarkdownV2')
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+            if p[0] == 'g':
+                if check_user_last_pic(p[3], v[0])==1:
+                    try:
+                        print(v[0], p[0], p[1])
+                        bot.send_media_group(v[0], p[2])
+                    except telebot.apihelper.ApiException as e:
+                        if e.result.status_code == 403:
+                            print('Користувач забанив бота')
+                        elif e.result.status_code == 400:
+                            print('Не вийшло загрузить медіа')
+
+@bot.message_handler(commands=['test2'])
+def goddesses(message):
+    url = 'https://www.reddit.com/r/FitNakedGirls/new/.json'
+    v_all_users = all_users()
+    new_pic = get_picture(url)
+    #print(new_pic)
+    for v in v_all_users:
+        print(v[0],"===========================Test FitNakedGirls")
         for p in new_pic:
             if p[0] == 'v':
                 if check_user_last_pic(p[3],v[0])==1:
@@ -337,13 +382,13 @@ def contact(message):
     if message.from_user.id == message.contact.user_id:
         print(message.contact)
         print(message.from_user)
-        # db_worker = SQLighter(config.database_name)
-        # db_worker.add_user(message.contact.user_id, message.contact.first_name, message.contact.last_name,
+        #db_worker = SQLighter(config.database_name)
+        #db_worker.add_user(message.contact.user_id, message.contact.first_name, message.contact.last_name,
         #                   message.from_user.username, message.contact.phone_number, message.from_user.language_code,
         #                   message.from_user.is_bot)
-        # db_worker.close()
-        keyboard = types.ReplyKeyboardRemove()
-        bot.send_message(message.chat.id, "Зарєстровано! Зачекай, поки адмін додасть тебе до дозволених людей!", reply_markup=keyboard)
+        #db_worker.close()
+        #keyboard = types.ReplyKeyboardRemove()
+        #bot.send_message(message.chat.id, "Зарєстровано! Зачекай, поки адмін додасть тебе до дозволених людей!", reply_markup=keyboard)
     else:
         bot.send_message(message.chat.id, 'Ділитися треба лише СВОЇМИ контактами')
 
@@ -351,8 +396,9 @@ def runBot():
     bot.polling(none_stop=True)
 
 def runScheluders():
-    schedule.every().hour.at(":21").do(post, url='https://www.reddit.com/r/goddesses_2/new/.json')
-    schedule.every().hour.at(":42").do(post, url='https://www.reddit.com/r/nsfw/new/.json')
+    schedule.every().hour.at(":00").do(post, url='https://www.reddit.com/r/adorableporn/new/.json')
+    schedule.every().hour.at(":20").do(post, url='https://www.reddit.com/r/goddesses_2/new/.json')
+    schedule.every().hour.at(":40").do(post, url='https://www.reddit.com/r/TooCuteForPorn/new/.json')
     while True:
         schedule.run_pending()
         time.sleep(1)
